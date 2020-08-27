@@ -51,6 +51,22 @@ def weeks():
             WEEKS.append(week)
     return WEEKS
 
+
+# Rectifies common date DQ issues seen within the exports
+def cleanDate(date):
+    if date == '':
+        return date
+    if str(date).find("/") == -1:
+        result = datetime.datetime.fromordinal(datetime.datetime(1900, 1, 1).toordinal() + int(date) - 2)
+    else:
+        if str(date) == "01/01/001":
+            result = datetime.datetime.strptime("01/01/0001", "%m/%d/%Y")
+        else:
+            result = datetime.datetime.strptime(str(date), "%m/%d/%Y")
+    result = result.strftime("%m/%d/%Y")
+    return result
+
+
 # Interprets a campminder export excel file and processes the data within it
 def processCampMinder(fileName):
     data = []
@@ -63,39 +79,31 @@ def processCampMinder(fileName):
 
     #Loop over all rows of the sheet
     for i in range(1, sheet.nrows):
-        rowCell = []
+        rowCells = []
 
         #Loop over all columns of the row
         for j in range(sheet.ncols):
-
-            #Additional logic to handle date conversion and DQ issues
-            if j == 3 and sheet.cell_value(i, j) != '':
-                if str(sheet.cell_value(i, j)).find("/") == -1:
-                    dt = datetime.datetime.fromordinal(
-                        datetime.datetime(1900, 1, 1).toordinal() + int(sheet.cell_value(i, j)) - 2)
-                    dt = dt.strftime("%m/%d/%Y")
-                    rowCell.append(dt)
-                else:
-                    dt = datetime.datetime.strptime(str(sheet.cell_value(i, j)), "%m/%d/%Y")
-                    rowCell.append(dt.strftime("%m/%d/%Y"))
+            #Additional logic to handle dates
+            if j == 3:
+                rowCells.append(cleanDate(sheet.cell_value(i, j)))
             else:
-                rowCell.append(sheet.cell_value(i, j))
+                rowCells.append(sheet.cell_value(i, j))
 
-        gender = rowCell[2]
+        gender = rowCells[2]
         gender = gender[:1]
         row = {
-            "firstName":                rowCell[0],
-            "lastName":                 rowCell[1],
+            "firstName":                rowCells[0],
+            "lastName":                 rowCells[1],
             "gender":                   gender,
-            "birthDate":                rowCell[3],
-            "schoolGrade":              rowCell[4],
-            "kidsGroup":                rowCell[5],
+            "birthDate":                rowCells[3],
+            "schoolGrade":              rowCells[4],
+            "kidsGroup":                rowCells[5],
             "arrival":                  " - ",
-            "enrolledChildSessions":    rowCell[6],
+            "enrolledChildSessions":    rowCells[6],
+            "guestAccommodation":    rowCells[7],
             "changes":                  "",
         }
         data.append(row.copy())
-        # loop over rows in the excel file
     return data
 
 # Interprets a ResBill export excel file and processes the data within it
@@ -115,7 +123,7 @@ def processResBill(fileName):
     for i in range(0, sheet.nrows):
         childId = 1
         rowCommonFields = {}
-        childrenCells = {}
+        childDict = {}
 
         #Loop over all columns within the row
         for j in range(sheet.ncols):
@@ -124,52 +132,40 @@ def processResBill(fileName):
                 colTitles.append(sheet.cell_value(i, j))
             else:
                 title = colTitles[j]
-                #If j is not yet into child columns, set the common fields, otherwise set child data
+
+                # if j is onto next child eith find common family data or append it to child dict
+                if not title.endswith(str(childId)):
+                    if j < 2:
+                        # if first child for the family set common fields for a family
+                        if title == "arrival":
+                            rowCommonFields.update({colTitles[j]: cleanDate(sheet.cell_value(i, j))})
+                        else:
+                            rowCommonFields.update({colTitles[j]: sheet.cell_value(i, j)})
+                    else:
+                        # If not first child for family, populate child info with common data
+                        childDict.update({colTitles[0]: rowCommonFields["arrival"]})
+                        childDict.update({colTitles[1]: rowCommonFields["accom"]})
+                        if childDict["childlast"] != "":
+                            rowChildren.append(childDict)
+                        childDict = {}
+                        childId += 1
+
+                #If j is into child info columns set their data, else set the common fields across all children from the family
                 if j >= 2 and title.endswith(str(childId)):
                     # Cut child numbers off column names eg. childlast2
                     title = title[:-1]
                     #Fix formatting of date if it is incorrect
-                    if title == "dob" and sheet.cell_value(i, j) != '':
-                        if str(sheet.cell_value(i, j)).find("/") == -1:
-                            dt = datetime.datetime.fromordinal(datetime.datetime(1900, 1, 1).toordinal() + int(sheet.cell_value(i, j)) - 2)
-                        else:
-                            #Code to fix data quality issue
-                            if str(sheet.cell_value(i, j)) == "01/01/001":
-                                dt = datetime.datetime.strptime("01/01/0001", "%m/%d/%Y")
-                            else:
-                                dt = datetime.datetime.strptime(str(sheet.cell_value(i, j)), "%m/%d/%Y")
-                        dt = dt.strftime("%m/%d/%Y")
-                        childrenCells.update({title: dt})
+                    if title == "dob":
+                        childDict.update({title: cleanDate(sheet.cell_value(i, j))})
                     elif title == "agegrp" and sheet.cell_value(i, j) != '':
                         for k in AGE_GROUPS:
                             if sheet.cell_value(i, j) == k["rbName"]:
-                                childrenCells.update({title: k["cmName"]})
+                                childDict.update({title: k["cmName"]})
                                 break
                             else:
-                                childrenCells.update({title: sheet.cell_value(i, j)})
+                                childDict.update({title: sheet.cell_value(i, j)})
                     else:
-                        childrenCells.update({title: sheet.cell_value(i, j)})
-                else:
-                    if j < 2:
-                        if title == "arrival" and sheet.cell_value(i, j) != '':
-                            if str(sheet.cell_value(i, j)).find("/") == -1:
-                                dt = datetime.datetime.fromordinal(datetime.datetime(1900, 1, 1).toordinal() + int(sheet.cell_value(i, j)) - 2)
-                            else:
-                                dt = datetime.datetime.strptime(str(sheet.cell_value(i, j)), "%m/%d/%Y")
-                            dt = dt.strftime("%m/%d/%Y")
-                            rowCommonFields.update({colTitles[j]: dt})
-                        else:
-                            rowCommonFields.update({colTitles[j]: sheet.cell_value(i, j)})
-                    else:
-                        childrenCells.update({colTitles[0]: rowCommonFields["arrival"]})
-                        childrenCells.update({colTitles[1]: rowCommonFields["accom"]})
-                        if childrenCells["childlast"] != "":
-                            rowChildren.append(childrenCells)
-                        childrenCells = {}
-                        childId += 1
-                        # Cut child numbers off column names eg. childlast2
-                        title = title[:-1]
-                        childrenCells.update({title: sheet.cell_value(i, j)})
+                        childDict.update({title: sheet.cell_value(i, j)})
 
     #Process pivoted child records
     for r in rowChildren:
