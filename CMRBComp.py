@@ -11,8 +11,16 @@ from tkinter import messagebox
 
 
 #An array containing the first saturday of the resort of each year.
-SATURDAYS = [datetime.datetime.strptime("05/26/2018", "%m/%d/%Y"), datetime.datetime.strptime("05/25/2019", "%m/%d/%Y"), datetime.datetime.strptime("05/23/2020", "%m/%d/%Y"), datetime.datetime.strptime("05/29/2021", "%m/%d/%Y")]
+SATURDAYS = [
+    datetime.datetime.strptime("05/26/2018", "%m/%d/%Y"),
+    datetime.datetime.strptime("05/25/2019", "%m/%d/%Y"),
+    datetime.datetime.strptime("05/23/2020", "%m/%d/%Y"),
+    datetime.datetime.strptime("05/29/2021", "%m/%d/%Y"),
+    datetime.datetime.strptime("05/28/2022", "%m/%d/%Y"),
+]
 WEEKS = []
+
+#Mappings
 AGE_GROUPS = [
     {"Group": "IN", "rbName": "Infant", "cmName": ""},
     {"Group": "JT", "rbName": "Jr. Toddler", "cmName": "Junior Toddlers"},
@@ -28,7 +36,7 @@ AGE_GROUPS = [
 ]
 
 
-#Sets week numbers
+#Sets resort week numbers
 def weeks():
     for i in SATURDAYS:
         for j in range(18):
@@ -43,7 +51,7 @@ def weeks():
             WEEKS.append(week)
     return WEEKS
 
-# Interprets an excel file and processes the data within it
+# Interprets a campminder export excel file and processes the data within it
 def processCampMinder(fileName):
     data = []
 
@@ -52,10 +60,15 @@ def processCampMinder(fileName):
 
     # For row 0 and column 0
     sheet.cell_value(0, 0)
+
+    #Loop over all rows of the sheet
     for i in range(1, sheet.nrows):
-        row = {}
         rowCell = []
+
+        #Loop over all columns of the row
         for j in range(sheet.ncols):
+
+            #Additional logic to handle date conversion and DQ issues
             if j == 3 and sheet.cell_value(i, j) != '':
                 if str(sheet.cell_value(i, j)).find("/") == -1:
                     dt = datetime.datetime.fromordinal(
@@ -70,27 +83,28 @@ def processCampMinder(fileName):
 
         gender = rowCell[2]
         gender = gender[:1]
-        row["firstName"] = rowCell[0]
-        row["lastName"] = rowCell[1]
-        row["gender"] = gender
-        row["birthDate"] = rowCell[3]
-        row["schoolGrade"] = rowCell[4]
-        row["kidsGroup"] = rowCell[5]
-        row["arrival"] = " - "
-        row["enrolledChildSessions"] = rowCell[6]
-        row["guestAccommodation"] = rowCell[7]
-        row["changes"] = ""
+        row = {
+            "firstName":                rowCell[0],
+            "lastName":                 rowCell[1],
+            "gender":                   gender,
+            "birthDate":                rowCell[3],
+            "schoolGrade":              rowCell[4],
+            "kidsGroup":                rowCell[5],
+            "arrival":                  " - ",
+            "enrolledChildSessions":    rowCell[6],
+            "changes":                  "",
+        }
         data.append(row.copy())
         # loop over rows in the excel file
     return data
 
-# Interprets an excel file and processes the data within it
+# Interprets a ResBill export excel file and processes the data within it
 def processResBill(fileName):
     data = []
     colTitles = []
     rowChildren = []
 
-    #open resbill workbook path provided by main
+    #Open resbill workbook path provided by main
     wb = xlrd.open_workbook(fileName)
     sheet = wb.sheet_by_index(0)
 
@@ -157,8 +171,10 @@ def processResBill(fileName):
                         title = title[:-1]
                         childrenCells.update({title: sheet.cell_value(i, j)})
 
+    #Process pivoted child records
     for r in rowChildren:
         arrival = datetime.datetime.strptime(str(r["arrival"]), "%m/%d/%Y")
+        # Map arrival dates to week numbers for comparison
         for i in WEEKS:
             if  i["fDOW"] <= arrival < i["lDOW"]:
                 r["enrolledChildSessions"] = 'Week %d' % i["weekNo"]
@@ -169,16 +185,16 @@ def processResBill(fileName):
             else:
                 r["enrolledChildSessions"] = 'Unable to find match. Check date arrival date'
         row = {
-            "firstName": r["childfirst"],
-            "lastName": r["childlast"],
-            "gender": r["sex"],
-            "birthDate": r["dob"],
-            "schoolGrade": "-",
-            "kidsGroup": r["agegrp"],
-            "arrival": r["arrival"],
-            "enrolledChildSessions": r["enrolledChildSessions"],
-            "guestAccommodation": r["accom"],
-            "changes": "",
+            "firstName":                r["childfirst"],
+            "lastName":                 r["childlast"],
+            "gender":                   r["sex"],
+            "birthDate":                r["dob"],
+            "schoolGrade":              "-",
+            "kidsGroup":                r["agegrp"],
+            "arrival":                  r["arrival"],
+            "enrolledChildSessions":    r["enrolledChildSessions"],
+            "guestAccommodation":       r["accom"],
+            "changes":                  "",
         }
         data.append(row.copy())
     return data
@@ -290,7 +306,7 @@ def main(sourceDirectory):
         # Check that the file is an excel file
         if not fileName.startswith("~") and not fileName.startswith("CM-RB")\
                 and fileName.endswith(".xlsx") or fileName.endswith(".xls") or fileName.endswith(".xlsm") or fileName.endswith(".xlsb"):
-            # Interpret and parse the excel file to JSON file to a variable
+            # Parse the entire excel file pathname to a variable
             pathName = os.path.join(sourceDirectory, fileName)
 
             print("Scanning: " + fileName)
